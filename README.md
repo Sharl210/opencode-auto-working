@@ -22,37 +22,28 @@ Auto-Working 采用纯插件实现，不修改 OpenCode 核心代码。内部结
 
 ## 安装方法
 
-### 1. 首选安装方式：让 LLM 代为安装
-
-```text
-仓库地址：https://github.com/Sharl210/opencode-auto-working
-请在当前 OpenCode 环境中安装并启用 Auto-Working 插件。优先使用 OpenCode 官方插件安装命令，并直接安装这个 release 包：https://github.com/Sharl210/opencode-auto-working/releases/download/v0.1.2/opencode-auto-working-0.1.2.tgz
-```
-
-### 2. 人工安装方式
-
-根据 OpenCode 当前插件机制，当前最稳妥的人工安装方式是直接安装 release 附件：
+根据 OpenCode 当前插件机制，当前最稳妥的人工安装方式是直接安装最新 release 附件：
 
 ```bash
-opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/download/v0.1.2/opencode-auto-working-0.1.2.tgz
+opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz
 ```
 
 或使用等价别名：
 
 ```bash
-opencode plug https://github.com/Sharl210/opencode-auto-working/releases/download/v0.1.2/opencode-auto-working-0.1.2.tgz
+opencode plug https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz
 ```
 
 说明：
 
 - OpenCode 会读取插件包 `package.json` 中的 `oc-plugin` 字段识别目标类型。
 - 本插件面向 TUI 使用场景。
-- 这套安装方式已经按 release 包做过实际验证。
+- 这套安装方式已经按 GitHub Release 直链做过实际验证。
 - 当前 OpenCode 安装器在实测中会同时把该插件条目写入 `opencode.json` 与 `tui.json`。这是当前安装链路的实际行为，不是文档推测。
 - 如需安装到全局配置，可使用：
 
 ```bash
-opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/download/v0.1.2/opencode-auto-working-0.1.2.tgz --global
+opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz --global
 ```
 
 ## 使用方法
