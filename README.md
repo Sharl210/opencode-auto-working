@@ -57,6 +57,7 @@ opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/lates
 
 - 正常运行：`Auto-Working ON`
 - 退避等待：`Auto-Working ON · 39s`
+- 用户主动打断：`Auto-Working ON · ∞ · 用户主动打断中`
 - 等待用户介入：`Auto-Working ON · ∞ · 等待用户介入`
 - 任务已完成：`Auto-Working ON · ∞ · 任务已完成`
 
@@ -76,6 +77,25 @@ Auto-Working 只会在以下条件同时满足时继续自动推进：
 - `[[AUTO_WORKING_TASK_COMPLETE]]`
 
 这使插件既能保持高自主性，也能在真正需要用户介入或已经完成任务时停止自动推进。
+
+如果用户主动执行 interrupt，插件会进入 `用户主动打断中` 暂停态，并停止继续累计持续运行时间。直到下一次 session 真正回到 `idle`，该暂停态才会退出。
+
+## 卸载插件的方法
+
+OpenCode 当前没有外部插件的官方卸载命令，因此卸载方式是手动移除插件配置。
+
+需要从以下文件中删除 Auto-Working 的插件条目：
+
+- 全局服务端配置：`~/.config/opencode/opencode.json`
+- 全局 TUI 配置：`~/.config/opencode/tui.json`
+
+如果你是按本文档的 latest 链接安装的，需要删除这一条：
+
+```json
+"https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz"
+```
+
+删除后，重启 OpenCode 即可生效。
 
 ## 开发与打包
 
