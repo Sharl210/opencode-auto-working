@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { createEffect, createRoot } from "solid-js"
 import { setup } from "../src/runtime"
 import { COMPLETE_MARK, heartbeatText, WAITING_MARK } from "../src/template"
 
@@ -31,6 +32,8 @@ function create() {
       onSelect?: () => Promise<void>
     }>,
   }
+  let reg: (() => typeof cmd.all) | undefined
+  let dispose: (() => void) | undefined
   const route = {
     current: {
       name: "session" as const,
@@ -42,8 +45,18 @@ function create() {
     app: { version: "test" },
     command: {
       register(cb: () => typeof cmd.all) {
+        reg = cb
         cmd.all = cb()
+        dispose = createRoot((kill) => {
+          createEffect(() => {
+            cmd.all = cb()
+          })
+          return kill
+        })
         return () => {
+          reg = undefined
+          dispose?.()
+          dispose = undefined
           cmd.all = []
         }
       },
@@ -274,10 +287,14 @@ function create() {
     state,
     msg,
     clear: () => clear,
+    refresh() {
+      if (reg) cmd.all = reg()
+    },
     async emit(event: { type: string }) {
       for (const fn of evt.get(event.type) ?? []) {
         await fn(event)
       }
+      if (reg) cmd.all = reg()
     },
   }
 }
@@ -335,6 +352,8 @@ test("registers a toggle command", async () => {
   })
 
   await fx.cmd.all[0].onSelect?.()
+  fx.refresh()
+  if (fx.cmd.all.length === 0) throw new Error("command registration missing after toggle")
   expect(fx.cmd.all[0].title).toBe("Auto-Working: Disable")
   expect(fx.clear()).toBe(1)
 })
@@ -413,4 +432,20 @@ test("pauses only on explicit assistant markers", async () => {
   } as never)
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   expect(fx.prompt).toHaveLength(1)
+})
+
+test("pauses on user interrupt until the next idle", async () => {
+  const fx = create()
+
+  await setup(fx.api as never)
+  await fx.cmd.all[0].onSelect?.()
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(1)
+
+  await fx.emit({ type: "tui.command.execute", properties: { command: "session.interrupt" } } as never)
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(1)
+
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(2)
 })

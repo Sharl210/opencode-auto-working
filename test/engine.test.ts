@@ -29,7 +29,7 @@ test("shows no countdown until retry wait begins", () => {
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · 1 个任务 · 0s")
 })
 
-test("tracks task count and live runtime only when ticked", () => {
+test("tracks task count and live runtime only in running state", () => {
   let now = 0
   const engine = new Engine({
     now: () => now,
@@ -51,13 +51,13 @@ test("tracks task count and live runtime only when ticked", () => {
   expect(entry(engine).live_tick_at).toBe(5_000)
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · 4 个任务 · 5s")
 
+  entry(engine).waiting = true
   now = 8_000
-  expect(engine.badge("ses_1")).toBe("Auto-Working ON · 4 个任务 · 5s")
-
   engine.tick("ses_1")
-  expect(entry(engine).live_ms).toBe(8_000)
+  expect(engine.badge("ses_1")).toBe("Auto-Working ON · 4 个任务 · 5s")
+  expect(entry(engine).live_ms).toBe(5_000)
   expect(entry(engine).live_tick_at).toBe(8_000)
-  expect(engine.badge("ses_1")).toBe("Auto-Working ON · 4 个任务 · 8s")
+  expect(engine.badge("ses_1")).toBe("Auto-Working ON · 4 个任务 · 5s")
 })
 
 test("uses a 30 second base delay for the first wait", async () => {
@@ -127,6 +127,25 @@ test("shows the task-complete pause badge", () => {
   expect(entry(engine).paused).toBe(true)
   expect(entry(engine).pause_reason).toBe("complete")
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · ∞ · 任务已完成 · 1 个任务 · 0s")
+})
+
+test("shows the interrupted pause badge", () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "interrupt")
+
+  expect(entry(engine).paused).toBe(true)
+  expect(entry(engine).pause_reason).toBe("interrupt")
+  expect(engine.badge("ses_1")).toBe("Auto-Working ON · ∞ · 用户主动打断中 · 1 个任务 · 0s")
 })
 
 test("coalesces concurrent onIdle calls into one send and one schedule", async () => {
@@ -317,16 +336,59 @@ test("manual activity resets the waiting state", async () => {
   })
 
   engine.enable("ses_1")
-  engine.pause("ses_1", "user")
+  await engine.onIdle("ses_1")
   engine.onManual("ses_1")
 
-  expect(cleared).toHaveLength(0)
+  expect(cleared).toHaveLength(1)
   expect(entry(engine).waiting).toBe(false)
   expect(entry(engine).paused).toBe(false)
   expect(entry(engine).pause_reason).toBeNull()
   expect(entry(engine).delay_ms).toBe(30_000)
   expect(entry(engine).next_at).toBeNull()
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · 1 个任务 · 0s")
+})
+
+test("all pause states only exit on the next idle", async () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "interrupt")
+  engine.onManual("ses_1")
+  expect(entry(engine).paused).toBe(true)
+
+  await engine.onIdle("ses_1")
+  expect(entry(engine).paused).toBe(false)
+  expect(entry(engine).pause_reason).toBeNull()
+  expect(entry(engine).waiting).toBe(false)
+})
+
+test("clears accumulated runtime on disable", () => {
+  let now = 0
+  const engine = new Engine({
+    now: () => now,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  now = 5_000
+  engine.tick("ses_1")
+  expect(entry(engine).live_ms).toBe(5_000)
+
+  engine.disable("ses_1")
+  expect(engine.entry("ses_1")).toBeUndefined()
 })
 
 test("assistant activity resets the waiting state", async () => {
@@ -344,10 +406,10 @@ test("assistant activity resets the waiting state", async () => {
   })
 
   engine.enable("ses_1")
-  engine.pause("ses_1", "complete")
+  await engine.onIdle("ses_1")
   engine.onAssistant("ses_1")
 
-  expect(cleared).toHaveLength(0)
+  expect(cleared).toHaveLength(1)
   expect(entry(engine).waiting).toBe(false)
   expect(entry(engine).paused).toBe(false)
   expect(entry(engine).pause_reason).toBeNull()

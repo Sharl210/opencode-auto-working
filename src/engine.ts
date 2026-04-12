@@ -3,7 +3,7 @@ import { heartbeatText } from "./template.js"
 const BASE = 30_000
 const CAP = 5 * 60_000
 
-export type PauseReason = "user" | "complete"
+export type PauseReason = "user" | "complete" | "interrupt"
 
 export type Entry = {
   enabled: boolean
@@ -39,6 +39,7 @@ const grow = (ms: number) => Math.max(BASE, Math.round(ms * (ms >= CAP ? 3 : 1.3
 const why = (why: PauseReason | null) => {
   if (why === "user") return "等待用户介入"
   if (why === "complete") return "任务已完成"
+  if (why === "interrupt") return "用户主动打断中"
   return ""
 }
 
@@ -90,6 +91,7 @@ export class Engine {
     hit.delay_ms = BASE
     hit.last_kind = kind
     hit.seen = false
+    hit.live_tick_at = this.#now()
     hit.rev += 1
   }
 
@@ -155,12 +157,14 @@ export class Engine {
   onAssistant(sessionID: string) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
+    if (hit.paused) return
     this.#reset(hit)
   }
 
   onManual(sessionID: string) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
+    if (hit.paused) return
     this.#reset(hit, "manual")
   }
 
@@ -175,6 +179,10 @@ export class Engine {
     if (!hit?.enabled || hit.live_tick_at === null) return
 
     const now = this.#now()
+    if (hit.waiting || hit.paused) {
+      hit.live_tick_at = now
+      return
+    }
     hit.live_ms += Math.max(0, now - hit.live_tick_at)
     hit.live_tick_at = now
   }
@@ -185,6 +193,7 @@ export class Engine {
     this.#reset(hit)
     hit.paused = true
     hit.pause_reason = why
+    hit.live_tick_at = this.#now()
   }
 
   onBusy(sessionID: string) {
@@ -195,7 +204,7 @@ export class Engine {
 
   async onIdle(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled || hit.run || hit.paused) return
+    if (!hit?.enabled || hit.run) return
 
     hit.run = true
     const rev = hit.rev
@@ -203,6 +212,11 @@ export class Engine {
     try {
       if (!(await this.#idle(sessionID))) return
       if (this.#map.get(sessionID) !== hit || !hit.enabled || hit.rev !== rev) return
+
+      if (hit.paused) {
+        this.#reset(hit)
+        return
+      }
 
       if (hit.seen) {
         this.#reset(hit)

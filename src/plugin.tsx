@@ -31,12 +31,13 @@ function View(props: { api: TuiPluginApi; eng: Engine; root: Map<string, string>
 }
 
 const tui: TuiPlugin = async (api) => {
-  const { eng, root } = await setup(api)
+  const { eng, root, rev } = await setup(api)
 
   api.slots.register({
     order: 100,
     slots: {
       app() {
+        rev()
         return <View api={api} eng={eng} root={root} />
       },
     },
