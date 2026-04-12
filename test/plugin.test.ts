@@ -5,6 +5,7 @@ import { COMPLETE_MARK, heartbeatText, WAITING_MARK } from "../src/template"
 function create() {
   const evt = new Map<string, Array<(event: unknown) => void | Promise<void>>>()
   const prompt: Array<unknown> = []
+  const slot: Array<{ slots: Record<string, () => unknown> }> = []
   const sessions = {
     root: { id: "root" },
     child: { id: "child", parentID: "root" },
@@ -235,7 +236,8 @@ function create() {
     },
     renderer: {},
     slots: {
-      register() {
+      register(input: { slots: Record<string, () => unknown> }) {
+        slot.push(input)
         return "slot"
       },
     },
@@ -267,6 +269,7 @@ function create() {
   return {
     api,
     cmd,
+    slot,
     prompt,
     state,
     msg,
@@ -284,6 +287,40 @@ test("exports the runtime setup function", async () => {
 
   expect(typeof mod.setup).toBe("function")
   expect(typeof mod.current).toBe("function")
+})
+
+test("renders the app badge without orphan text nodes", async () => {
+  await import("@opentui/solid/runtime-plugin-support")
+  const { testRender } = await import("@opentui/solid")
+  const plugin = (await import("../src/plugin")).default
+  const fx = create()
+
+  await plugin.tui(fx.api as never, undefined, { id: "opencode:auto-working" } as never)
+  await fx.cmd.all[0].onSelect?.()
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+
+  const app = fx.slot[0]?.slots.app
+  expect(typeof app).toBe("function")
+
+  const out = await testRender(() => app!() as never)
+  await out.renderOnce()
+  expect(out.captureCharFrame()).toContain("Auto-Working")
+})
+
+test("renders the app slot safely before Auto-Working is enabled", async () => {
+  await import("@opentui/solid/runtime-plugin-support")
+  const { testRender } = await import("@opentui/solid")
+  const plugin = (await import("../src/plugin")).default
+  const fx = create()
+
+  await plugin.tui(fx.api as never, undefined, { id: "opencode:auto-working" } as never)
+
+  const app = fx.slot[0]?.slots.app
+  expect(typeof app).toBe("function")
+
+  const out = await testRender(() => app!() as never)
+  await out.renderOnce()
+  expect(out.captureCharFrame()).not.toContain("Auto-Working")
 })
 
 test("registers a toggle command", async () => {

@@ -1,5 +1,5 @@
 import type { TuiPlugin, TuiPluginApi, TuiPluginModule } from "@opencode-ai/plugin/tui"
-import { createMemo, createSignal, onCleanup, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup } from "solid-js"
 import type { Engine } from "./engine.js"
 import { current, setup } from "./runtime.js"
 
@@ -26,13 +26,8 @@ function View(props: { api: TuiPluginApi; eng: Engine; root: Map<string, string>
     return props.eng.badge(props.root.get(sessionID) ?? sessionID)
   })
 
-  return (
-    <Show when={text()}>
-      <box paddingLeft={1}>
-        <text fg={props.api.theme.current.success}>{text()}</text>
-      </box>
-    </Show>
-  )
+  if (!text().length) return undefined
+  return <box paddingLeft={1}><text fg={props.api.theme.current.success}>{text()}</text></box>
 }
 
 const tui: TuiPlugin = async (api) => {
