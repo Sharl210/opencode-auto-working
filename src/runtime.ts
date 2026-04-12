@@ -100,12 +100,13 @@ export async function setup(api: TuiPluginApi) {
         async onSelect() {
           const sessionID = current(api)
           if (!sessionID) return
-          await run(sessionID, (rootID) => {
+          await run(sessionID, async (rootID) => {
             if (eng.entry(rootID)?.enabled) {
               eng.disable(rootID)
               return
             }
             eng.enable(rootID)
+            if (await treeIdle(api.client, rootID)) eng.pause(rootID, "start")
           })
           api.ui.dialog.clear()
         },

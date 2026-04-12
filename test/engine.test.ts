@@ -29,6 +29,25 @@ test("shows no countdown until retry wait begins", () => {
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · 1 个任务 · 0s")
 })
 
+test("shows the waiting-to-start pause badge", () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "start")
+
+  expect(entry(engine).paused).toBe(true)
+  expect(entry(engine).pause_reason).toBe("start")
+  expect(engine.badge("ses_1")).toBe("Auto-Working ON · ∞ · 等待用户开始工作中... · 1 个任务 · 0s")
+})
+
 test("tracks task count and live runtime only in running state", () => {
   let now = 0
   const engine = new Engine({
@@ -146,6 +165,29 @@ test("shows the interrupted pause badge", () => {
   expect(entry(engine).paused).toBe(true)
   expect(entry(engine).pause_reason).toBe("interrupt")
   expect(engine.badge("ses_1")).toBe("Auto-Working ON · ∞ · 用户主动打断中 · 1 个任务 · 0s")
+})
+
+test("start pause only exits after a busy-to-idle cycle", async () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "start")
+
+  await engine.onIdle("ses_1")
+  expect(entry(engine).paused).toBe(true)
+
+  engine.onBusy("ses_1")
+  await engine.onIdle("ses_1")
+  expect(entry(engine).paused).toBe(false)
+  expect(entry(engine).pause_reason).toBeNull()
 })
 
 test("coalesces concurrent onIdle calls into one send and one schedule", async () => {

@@ -362,8 +362,10 @@ test("sends heartbeat prompts through the sdk and resets after descendant retry 
   const fx = create()
 
   await setup(fx.api as never)
+  fx.state.root = { type: "busy" }
   await fx.cmd.all[0].onSelect?.()
 
+  fx.state.root = { type: "idle" }
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   expect(fx.prompt).toHaveLength(1)
   expect(fx.prompt[0]).toMatchObject({
@@ -384,7 +386,9 @@ test("only treats non-heartbeat user text parts as manual input", async () => {
   const fx = create()
 
   await setup(fx.api as never)
+  fx.state.root = { type: "busy" }
   await fx.cmd.all[0].onSelect?.()
+  fx.state.root = { type: "idle" }
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
 
   fx.msg.root.push({ id: "msg_1", role: "user" })
@@ -411,7 +415,9 @@ test("pauses only on explicit assistant markers", async () => {
   const fx = create()
 
   await setup(fx.api as never)
+  fx.state.root = { type: "busy" }
   await fx.cmd.all[0].onSelect?.()
+  fx.state.root = { type: "idle" }
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
 
   fx.msg.root.push({ id: "msg_a", role: "assistant" })
@@ -438,7 +444,9 @@ test("pauses on user interrupt until the next idle", async () => {
   const fx = create()
 
   await setup(fx.api as never)
+  fx.state.root = { type: "busy" }
   await fx.cmd.all[0].onSelect?.()
+  fx.state.root = { type: "idle" }
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   expect(fx.prompt).toHaveLength(1)
 
@@ -448,4 +456,24 @@ test("pauses on user interrupt until the next idle", async () => {
 
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   expect(fx.prompt).toHaveLength(2)
+})
+
+test("starts paused when enabled on an idle tree", async () => {
+  const fx = create()
+
+  await setup(fx.api as never)
+  await fx.cmd.all[0].onSelect?.()
+  fx.refresh()
+
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(0)
+
+  fx.state.root = { type: "busy" }
+  await fx.emit({ type: "session.status", properties: { sessionID: "root", status: fx.state.root } } as never)
+  fx.state.root = { type: "idle" }
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(0)
+
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(fx.prompt).toHaveLength(1)
 })

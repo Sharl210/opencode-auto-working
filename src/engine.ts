@@ -3,7 +3,7 @@ import { heartbeatText } from "./template.js"
 const BASE = 30_000
 const CAP = 5 * 60_000
 
-export type PauseReason = "user" | "complete" | "interrupt"
+export type PauseReason = "user" | "complete" | "interrupt" | "start"
 
 export type Entry = {
   enabled: boolean
@@ -37,6 +37,7 @@ type Opts = {
 const grow = (ms: number) => Math.max(BASE, Math.round(ms * (ms >= CAP ? 3 : 1.3)))
 
 const why = (why: PauseReason | null) => {
+  if (why === "start") return "等待用户开始工作中..."
   if (why === "user") return "等待用户介入"
   if (why === "complete") return "任务已完成"
   if (why === "interrupt") return "用户主动打断中"
@@ -193,12 +194,18 @@ export class Engine {
     this.#reset(hit)
     hit.paused = true
     hit.pause_reason = why
+    hit.seen = why !== "start"
     hit.live_tick_at = this.#now()
   }
 
   onBusy(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled || !hit.waiting) return
+    if (!hit?.enabled) return
+    if (hit.paused) {
+      hit.seen = true
+      return
+    }
+    if (!hit.waiting) return
     hit.seen = true
   }
 
@@ -214,6 +221,7 @@ export class Engine {
       if (this.#map.get(sessionID) !== hit || !hit.enabled || hit.rev !== rev) return
 
       if (hit.paused) {
+        if (!hit.seen) return
         this.#reset(hit)
         return
       }
