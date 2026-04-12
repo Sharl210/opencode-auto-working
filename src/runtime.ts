@@ -8,6 +8,10 @@ import { hasCompleteMarker, hasWaitingMarker, isHeartbeatText } from "./template
 export function current(api: TuiPluginApi): string | undefined {
   const route = api.route.current
   if (route.name !== "session") return undefined
+  const data = "data" in route ? route.data : undefined
+  if (typeof data === "object" && data !== null && "sessionID" in data && typeof data.sessionID === "string") {
+    return data.sessionID
+  }
   return typeof route.params?.sessionID === "string" ? route.params.sessionID : undefined
 }
 
