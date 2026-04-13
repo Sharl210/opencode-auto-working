@@ -30,7 +30,7 @@ test("requires the full descendant tree to be idle", async () => {
   expect(seen).toEqual(["root", "child", "leaf"])
 })
 
-test("treats unknown descendant status as not idle", async () => {
+test("treats unknown descendant status as idle when nothing is active", async () => {
   const client = {
     session: {
       children: async ({ sessionID }: { sessionID: string }) => ({
@@ -40,7 +40,7 @@ test("treats unknown descendant status as not idle", async () => {
     },
   }
 
-  expect(await treeIdle(client as never, "root")).toBe(false)
+  expect(await treeIdle(client as never, "root")).toBe(true)
 })
 
 test("returns true when the full tree is idle", async () => {

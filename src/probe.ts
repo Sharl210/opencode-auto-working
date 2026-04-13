@@ -10,6 +10,17 @@ type Query = {
 
 const active = (state?: SessionStatus) => state?.type === "busy" || state?.type === "retry"
 
+export async function stats(client: Client, root: string, query: Query = {}) {
+  const [list, status] = await Promise.all([descendants(client, root, query), client.session.status(query)])
+  const map = status.data ?? {}
+  const ids = [root, ...list]
+  return {
+    ids,
+    active_count: ids.filter((id) => active(map[id])).length,
+    idle: ids.every((id) => !active(map[id])),
+  }
+}
+
 export async function descendants(client: Client, root: string, query: Query = {}) {
   const out: string[] = []
 
@@ -25,10 +36,5 @@ export async function descendants(client: Client, root: string, query: Query = {
 }
 
 export async function treeIdle(client: Client, root: string, query: Query = {}) {
-  const [list, status] = await Promise.all([descendants(client, root, query), client.session.status(query)])
-  const map = status.data ?? {}
-  return [root, ...list].every((id) => {
-    const hit = map[id]
-    return !!hit && !active(hit)
-  })
+  return (await stats(client, root, query)).idle
 }
