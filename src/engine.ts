@@ -15,7 +15,7 @@ export type Entry = {
   delay_ms: number
   next_at: number | null
   timer: unknown | null
-  last_kind: "manual" | "heartbeat" | null
+  last_kind: "manual" | "assistant" | "heartbeat" | null
   seen: boolean
   run: boolean
   rev: number
@@ -158,6 +158,7 @@ export class Engine {
     if (!hit?.enabled) return ""
     if (hit.paused) return `状态: ${why(hit.pause_reason)}`
     if (hit.waiting) return "状态: 等待发送中"
+    if (hit.last_kind === "manual" || hit.last_kind === "assistant") return "状态: 正在运行中"
     if (hit.active_count > 0) return "状态: 正在运行中"
     return `状态: ${why(hit.state_reason ?? "start")}`
   }
@@ -194,13 +195,16 @@ export class Engine {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
     if (hit.paused) return
-    this.#reset(hit)
+    this.#reset(hit, "assistant")
   }
 
   onManual(sessionID: string) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
-    if (hit.paused) return
+    if (hit.paused) {
+      this.#reset(hit, "manual")
+      return
+    }
     this.#reset(hit, "manual")
   }
 
@@ -229,6 +233,10 @@ export class Engine {
   pause(sessionID: string, why: PauseReason) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
+    if (hit.paused) {
+      if (why !== "interrupt" && hit.pause_reason !== "start") return
+      if (why === "interrupt" && hit.pause_reason === "interrupt") return
+    }
     this.#reset(hit, null, why)
     hit.paused = true
     hit.pause_reason = why
@@ -276,6 +284,7 @@ export class Engine {
         if (!hit.seen) return
         const show = hit.pause_reason
         const start = show === "start"
+        if (!start) return
         this.#reset(hit, null, show)
         if (!start) return
       }

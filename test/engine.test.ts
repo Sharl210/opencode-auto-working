@@ -537,10 +537,10 @@ test("manual activity resets the waiting state", async () => {
   expect(entry(engine).pause_reason).toBeNull()
   expect(entry(engine).delay_ms).toBe(5_000)
   expect(entry(engine).next_at).toBeNull()
-  expect(engine.badge("ses_1")).toBe("Auto-Working: ON\n状态: 等待用户开始工作中\n进行中任务数: 0\n模式已持续运行: 0s")
+  expect(engine.badge("ses_1")).toBe("Auto-Working: ON\n状态: 正在运行中\n进行中任务数: 0\n模式已持续运行: 0s")
 })
 
-test("all pause states only exit on the next idle", async () => {
+test("non-start pause states persist until manual input", async () => {
   const engine = new Engine({
     now: () => 0,
     send: async () => {},
@@ -553,14 +553,16 @@ test("all pause states only exit on the next idle", async () => {
 
   engine.enable("ses_1")
   engine.pause("ses_1", "interrupt")
-  engine.onManual("ses_1")
-  expect(entry(engine).paused).toBe(true)
-
   await engine.onIdle("ses_1")
-  expect(entry(engine).paused).toBe(false)
-  expect(entry(engine).pause_reason).toBeNull()
+  expect(entry(engine).paused).toBe(true)
+  expect(entry(engine).pause_reason).toBe("interrupt")
   expect(entry(engine).waiting).toBe(false)
   expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
+
+  engine.onManual("ses_1")
+  expect(entry(engine).paused).toBe(false)
+  expect(entry(engine).pause_reason).toBeNull()
+  expect(engine.line2("ses_1")).toBe("状态: 正在运行中")
 })
 
 test("clears accumulated runtime on disable", () => {
@@ -612,7 +614,7 @@ test("assistant activity resets the waiting state", async () => {
   expect(entry(engine).pause_reason).toBeNull()
   expect(entry(engine).delay_ms).toBe(5_000)
   expect(entry(engine).next_at).toBeNull()
-  expect(engine.badge("ses_1")).toBe("Auto-Working: ON\n状态: 等待用户开始工作中\n进行中任务数: 0\n模式已持续运行: 0s")
+  expect(engine.badge("ses_1")).toBe("Auto-Working: ON\n状态: 正在运行中\n进行中任务数: 0\n模式已持续运行: 0s")
 })
 
 test("keeps the user-required label after idle clears the internal pause flag", async () => {
@@ -651,7 +653,7 @@ test("keeps the task-complete label after idle clears the internal pause flag", 
   expect(engine.line2("ses_1")).toBe("状态: 任务已完成")
 })
 
-test("does not fall back to start label after interrupt settles and busy resets waiting", async () => {
+test("keeps interrupt label until manual input", async () => {
   const engine = new Engine({
     now: () => 0,
     send: async () => {},
@@ -668,10 +670,34 @@ test("does not fall back to start label after interrupt settles and busy resets 
   expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
 
   await engine.onIdle("ses_1")
-  expect(engine.line2("ses_1")).toBe("状态: 等待发送中")
+  expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
 
   engine.onBusy("ses_1")
   expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
+
+  engine.onManual("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 正在运行中")
+})
+
+test("manual input clears waiting-for-user and task-complete pauses", () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "user")
+  engine.onManual("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 正在运行中")
+
+  engine.pause("ses_1", "complete")
+  engine.onManual("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 正在运行中")
 })
 
 test("resets backoff when activity returns the tree to idle", async () => {

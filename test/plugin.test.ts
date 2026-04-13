@@ -640,10 +640,54 @@ test("pauses only on explicit assistant markers", async () => {
   expect(fx.prompt).toHaveLength(1)
 })
 
-test("pauses on user interrupt until the next idle", async () => {
+test("real user input resumes user and complete pauses", async () => {
   const fx = create()
+  const rt = await setup(fx.api as never, { now: fx.now, timer: fx.timer })
 
-  await setup(fx.api as never, { now: fx.now, timer: fx.timer })
+  fx.state.root = { type: "busy" }
+  await fx.cmd.all[0].onSelect?.()
+  await settle()
+  fx.state.root = { type: "idle" }
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  await fx.advance(5_000)
+
+  fx.msg.root.push({ id: "msg_wait", role: "assistant" })
+  await fx.emit({ type: "message.updated", properties: { sessionID: "root", info: { id: "msg_wait", role: "assistant" } } } as never)
+  await fx.emit({
+    type: "message.part.updated",
+    properties: { sessionID: "root", time: 20, part: { id: "part_wait", messageID: "msg_wait", type: "text", text: `请处理 ${WAITING_MARK}` } },
+  } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 等待用户介入")
+
+  fx.msg.root.push({ id: "msg_user_1", role: "user" })
+  await fx.emit({ type: "message.updated", properties: { sessionID: "root", info: { id: "msg_user_1", role: "user" } } } as never)
+  await fx.emit({
+    type: "message.part.updated",
+    properties: { sessionID: "root", time: 21, part: { id: "part_user_1", messageID: "msg_user_1", type: "text", text: "继续做" } },
+  } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 正在运行中")
+
+  fx.msg.root.push({ id: "msg_done", role: "assistant" })
+  await fx.emit({ type: "message.updated", properties: { sessionID: "root", info: { id: "msg_done", role: "assistant" } } } as never)
+  await fx.emit({
+    type: "message.part.updated",
+    properties: { sessionID: "root", time: 22, part: { id: "part_done", messageID: "msg_done", type: "text", text: `现在停止 ${COMPLETE_MARK}` } },
+  } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 任务已完成")
+
+  fx.msg.root.push({ id: "msg_user_2", role: "user" })
+  await fx.emit({ type: "message.updated", properties: { sessionID: "root", info: { id: "msg_user_2", role: "user" } } } as never)
+  await fx.emit({
+    type: "message.part.updated",
+    properties: { sessionID: "root", time: 23, part: { id: "part_user_2", messageID: "msg_user_2", type: "text", text: "继续收尾" } },
+  } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 正在运行中")
+})
+
+test("keeps interrupt pause until the user sends a new real message", async () => {
+  const fx = create()
+  const rt = await setup(fx.api as never, { now: fx.now, timer: fx.timer })
+
   fx.state.root = { type: "busy" }
   await fx.cmd.all[0].onSelect?.()
   await settle()
@@ -654,8 +698,22 @@ test("pauses on user interrupt until the next idle", async () => {
 
   await fx.emit({ type: "tui.command.execute", properties: { command: "session.interrupt" } } as never)
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  await fx.advance(5_000)
   expect(fx.prompt).toHaveLength(1)
+  expect(rt.eng.line2("root")).toBe("状态: 用户主动打断中")
 
+  fx.msg.root.push({ id: "msg_i", role: "user" })
+  await fx.emit({ type: "message.updated", properties: { sessionID: "root", info: { id: "msg_i", role: "user" } } } as never)
+  await fx.emit({
+    type: "message.part.updated",
+    properties: { sessionID: "root", time: 10, part: { id: "part_i", messageID: "msg_i", type: "text", text: "继续处理" } },
+  } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 正在运行中")
+
+  fx.state.root = { type: "busy" }
+  await fx.emit({ type: "session.status", properties: { sessionID: "root", status: fx.state.root } } as never)
+  fx.state.root = { type: "idle" }
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   await fx.advance(5_000)
   expect(fx.prompt).toHaveLength(2)
