@@ -49,23 +49,36 @@ Auto-Working 是一个面向 OpenCode 的 TUI 插件。
 
 ## 安装
 
-推荐直接安装最新 release：
+当前 OpenCode 官方文档明确支持的外部插件来源是：
+
+- 本地文件 / 本地路径插件
+- npm 包
+
+对于 `https://.../*.tgz` 这种远程 tarball URL，官方没有把它列为受支持的 TUI 插件 spec。
+
+因此，当前推荐的可工作安装方式是：先下载 release 包到本地，再把它解压成一个本地插件目录，最后在 `tui.json` 中使用 `file://` 路径加载。
+
+### 1. 下载并解压最新 release
 
 ```bash
-opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz
+mkdir -p ~/.config/opencode/plugins/opencode-auto-working
+curl -L https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz -o /tmp/opencode-auto-working-latest.tgz
+tar -xzf /tmp/opencode-auto-working-latest.tgz -C ~/.config/opencode/plugins/opencode-auto-working --strip-components=1
 ```
 
-或：
+### 2. 在 `~/.config/opencode/tui.json` 里加入这条插件路径
 
-```bash
-opencode plug https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz
+```json
+"plugin": [
+  "file:///home/你的用户名/.config/opencode/plugins/opencode-auto-working"
+]
 ```
 
-如果你希望写入全局配置：
+如果你已经有别的插件，把这条加进原来的 `plugin` 数组即可。
 
-```bash
-opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz --global
-```
+### 3. 重启 OpenCode
+
+重启后，TUI 会从这个本地 `file://` 插件目录加载 Auto-Working。
 
 ## 使用
 
@@ -134,15 +147,14 @@ opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/lates
 
 OpenCode 当前没有单独的外部插件卸载命令。
 
-如果你是按 release 直链安装的，需要从配置里删除这条插件地址：
+如果你是按上面的本地目录方式安装的，需要从配置里删除这条插件地址：
 
 ```json
-"https://github.com/Sharl210/opencode-auto-working/releases/latest/download/opencode-auto-working-latest.tgz"
+"file:///home/你的用户名/.config/opencode/plugins/opencode-auto-working"
 ```
 
 常见位置：
 
-- `~/.config/opencode/opencode.json`
 - `~/.config/opencode/tui.json`
 
 删除后重启 OpenCode 即可。
