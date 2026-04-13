@@ -16,9 +16,10 @@ test("renders the wrapped plugin heartbeat", () => {
   expect(text).toContain(WAITING_MARK)
   expect(text).toContain(COMPLETE_MARK)
   expect(text).toContain("[Auto-Working 插件提示]")
-  expect(text).toContain("以下内容由 Auto-Working 插件以用户消息身份自动代发。")
-  expect(text).toContain("并在回复中原样输出标识")
-  expect(text).toContain("除非确实已经无法继续自主推进")
+  expect(text).toContain("以下内容由 Auto-Working 插件以用户消息身份自动代发,请与用户真实输入区分处理。")
+  expect(text).toContain(">>>>>请继续推进<<<<<")
+  expect(text).toContain("工作日报输出给用户")
+  expect(text).toContain("禁止输出下面的暂停标识")
   expect(isHeartbeatText(text)).toBe(true)
 })
 
