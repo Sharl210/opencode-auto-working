@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { rm } from "node:fs/promises"
 
-await Bun.$`rm -rf dist`
+await rm("./dist", { recursive: true, force: true })
 
 const result = await Bun.build({
   entrypoints: ["./src/index.ts"],
