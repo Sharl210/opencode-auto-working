@@ -2,8 +2,15 @@ import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { Message, Part } from "@opencode-ai/sdk/v2"
 import { createSignal } from "solid-js"
 import { Engine } from "./engine.js"
-import { descendants, treeIdle } from "./probe.js"
+import { stats, treeIdle } from "./probe.js"
 import { hasCompleteMarker, hasWaitingMarker, isHeartbeatText } from "./template.js"
+
+type Timer = ConstructorParameters<typeof Engine>[0]["timer"]
+
+type Opts = {
+  now?: () => number
+  timer?: Timer
+}
 
 export function current(api: TuiPluginApi): string | undefined {
   const route = api.route.current
@@ -15,19 +22,137 @@ export function current(api: TuiPluginApi): string | undefined {
   return typeof route.params?.sessionID === "string" ? route.params.sessionID : undefined
 }
 
-export async function setup(api: TuiPluginApi) {
+export async function setup(api: TuiPluginApi, opts: Opts = {}) {
   const root = new Map<string, string>()
   const role = new Map<string, Message["role"]>()
   const paused = new Set<string>()
   const [rev, setRev] = createSignal(0)
+  let live: string | undefined
+  let head: string | undefined
+
+  const limit = async <T>(ms: number, fn: () => Promise<T>) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`timeout:${ms}`))
+          }, ms)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   const eng = new Engine({
+    now: opts.now,
     send: async (sessionID, text) => {
-      await api.client.session.prompt({
-        sessionID,
-        parts: [{ type: "text", text }],
-      })
+      const wait = (ms: number) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, ms)
+        })
+
+      const users = async () => {
+        const res = await api.client.session.messages(
+          {
+            sessionID,
+            limit: 50,
+          },
+          {
+            throwOnError: true,
+          },
+        )
+        const role = (item: { info?: { role?: Message["role"] }; role?: Message["role"] }) => item.info?.role ?? item.role
+        return (res.data ?? []).filter((item) => role(item) === "user").length
+      }
+
+      const submit = async () => {
+        await limit(12_000, () =>
+          api.client.session.promptAsync(
+            {
+              sessionID,
+              parts: [{ type: "text", text }],
+            },
+            {
+              throwOnError: true,
+            },
+          ),
+        )
+      }
+
+      const submitViaTui = async () => {
+        const cur = current(api)
+        const switchBack = cur && cur !== sessionID
+        const before = await users().catch(() => 0)
+        if (switchBack) {
+          await api.client.tui.selectSession(
+            { sessionID },
+            {
+              throwOnError: true,
+            },
+          )
+        }
+
+        try {
+          await api.client.tui.appendPrompt(
+            { text },
+            {
+              throwOnError: true,
+            },
+          )
+          await api.client.tui.submitPrompt(
+            {},
+            {
+              throwOnError: true,
+            },
+          )
+
+          for (let i = 0; i < 20; i += 1) {
+            const after = await users().catch(() => before)
+            if (after > before) return
+            await wait(150)
+          }
+
+          throw new Error("tui_submit_no_user_message")
+        } finally {
+          if (switchBack) {
+            await api.client.tui.selectSession(
+              { sessionID: cur },
+              {
+                throwOnError: true,
+              },
+            )
+          }
+        }
+      }
+
+      try {
+        await submit()
+      } catch (primary) {
+        try {
+          await limit(16_000, submitViaTui)
+          return
+        } catch (fallback) {
+          const p = primary instanceof Error ? primary.message : String(primary)
+          const f = fallback instanceof Error ? fallback.message : String(fallback)
+          api.ui.toast({
+            variant: "error",
+            message: `Auto-Working 心跳发送失败: ${p}; fallback失败: ${f}`,
+          })
+          throw fallback
+        }
+      }
     },
-    idle: async (sessionID) => treeIdle(api.client, sessionID),
+    idle: async (sessionID) => {
+      try {
+        return await limit(8_000, () => treeIdle(api.client, sessionID))
+      } catch {
+        return false
+      }
+    },
+    timer: opts.timer,
   })
 
   const cache = (sessionID: string, parentID?: string) => {
@@ -58,7 +183,14 @@ export async function setup(api: TuiPluginApi) {
         return seen
       }
 
-      const info = (await api.client.session.get({ sessionID: cur })).data
+      const info = (
+        await api.client.session.get(
+          { sessionID: cur },
+          {
+            throwOnError: true,
+          },
+        )
+      ).data
       if (!info?.parentID) {
         chain.forEach((item) => {
           root.set(item, cur)
@@ -74,9 +206,41 @@ export async function setup(api: TuiPluginApi) {
 
   const sync = async (sessionID: string) => {
     const rootID = await find(sessionID)
-    const list = await descendants(api.client, rootID)
-    eng.setTaskCount(rootID, list.length + 1)
-    return rootID
+    const info = await stats(api.client, rootID)
+    eng.setActiveCount(rootID, info.active_count)
+    return { rootID, active_count: info.active_count }
+  }
+
+  const rebinding = () => {
+    off()
+    off = api.command.register(cmds)
+  }
+
+  const pin = (sessionID?: string) => {
+    if (!sessionID) return
+    if (head === sessionID) return
+    head = sessionID
+    rebinding()
+  }
+
+  const follow = async (sessionID?: string) => {
+    pin(sessionID)
+    if (!live || !sessionID) return
+    const rootID = await find(sessionID)
+    if (rootID === live) return
+
+    eng.disable(live)
+    eng.enable(rootID)
+    live = rootID
+    root.set(sessionID, rootID)
+
+    const status = api.state.session.status(rootID)
+    const active = status?.type === "busy" || status?.type === "retry"
+    if (!active) eng.pause(rootID, "start")
+
+    const info = await sync(sessionID)
+    if (info.active_count > 0) eng.onBusy(info.rootID)
+    setRev((value) => value + 1)
   }
 
   const read = (sessionID: string, part: Part) => {
@@ -86,11 +250,20 @@ export async function setup(api: TuiPluginApi) {
   }
 
   const run = async (sessionID: string, fn: (root: string) => void | Promise<void>) => {
-    await fn(await sync(sessionID))
+    try {
+      const info = await sync(sessionID)
+      const hit = eng.entry(info.rootID)
+      if (hit?.enabled && hit.paused && hit.pause_reason === "start" && info.active_count > 0) {
+        eng.onBusy(info.rootID)
+      }
+      await fn(info.rootID)
+    } catch {
+      return
+    }
     setRev((value) => value + 1)
   }
 
-  api.command.register(() => {
+  const cmds = () => {
     rev()
     const sessionID = current(api)
     const rootID = sessionID ? (root.get(sessionID) ?? sessionID) : undefined
@@ -99,23 +272,55 @@ export async function setup(api: TuiPluginApi) {
       {
         title: rootID ? eng.title(rootID) : "Auto-Working: Enable",
         value: "auto-working.toggle",
-        category: "System",
+        category: "Session",
+        suggested: true,
         hidden: api.route.current.name !== "session",
         async onSelect() {
           const sessionID = current(api)
           if (!sessionID) return
-          await run(sessionID, async (rootID) => {
-            if (eng.entry(rootID)?.enabled) {
-              eng.disable(rootID)
-              return
-            }
-            eng.enable(rootID)
-            if (await treeIdle(api.client, rootID)) eng.pause(rootID, "start")
-          })
+          pin(sessionID)
+          const rootID = await find(sessionID)
+          root.set(sessionID, rootID)
+
+          if (eng.entry(rootID)?.enabled) {
+            eng.disable(rootID)
+            if (live === rootID) live = undefined
+            setRev((value) => value + 1)
+            api.ui.dialog.clear()
+            api.ui.toast({ variant: "info", message: "Auto-Working 已关闭" })
+            return
+          }
+
+          eng.enable(rootID)
+          live = rootID
+          const status = api.state.session.status(rootID)
+          const active = status?.type === "busy" || status?.type === "retry"
+          if (!active) eng.pause(rootID, "start")
+          setRev((value) => value + 1)
           api.ui.dialog.clear()
+          api.ui.toast({ variant: "success", message: "Auto-Working 已开启" })
+
+          void sync(sessionID)
+            .then((info) => {
+              if (info.active_count > 0) eng.onBusy(info.rootID)
+              setRev((value) => value + 1)
+            })
+            .catch((error) => {
+              eng.disable(rootID)
+              setRev((value) => value + 1)
+              api.ui.toast({
+                variant: "error",
+                message: `Auto-Working 启动失败: ${error instanceof Error ? error.message : String(error)}`,
+              })
+            })
         },
       },
     ]
+  }
+
+  let off = api.command.register(cmds)
+  queueMicrotask(() => {
+    rebinding()
   })
 
   api.event.on("session.created", (event) => {
@@ -188,5 +393,5 @@ export async function setup(api: TuiPluginApi) {
     return run(event.properties.sessionID, (rootID) => eng.onManual(rootID))
   })
 
-  return { eng, root, rev }
+  return { eng, root, rev, follow }
 }
