@@ -48,12 +48,21 @@ opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/lates
 
 ## 使用方法
 
-安装完成后，在 OpenCode TUI 中通过 `Ctrl+P` 打开命令菜单，执行以下命令之一：
+安装完成后，插件会默认注入到侧边栏，但默认不会直接启动自动工作状态机。
+
+在未启用时，界面会常驻显示两行：
+
+- `Auto-Working: OFF`
+- `进行中任务数: xxx`
+
+此时只保留任务树数量统计，不会发送心跳，也不会处理暂停态或自动推进逻辑。
+
+如果需要真正启动 Auto-Working，再在 OpenCode TUI 中通过 `Ctrl+P` 打开命令菜单，执行以下命令之一：
 
 - `Auto-Working: Enable`
 - `Auto-Working: Disable`
 
-启用后，插件会在界面中显示当前状态，包括：
+启用后，第一行会切换为 `Auto-Working: ON`，并进入完整的自动工作模式。此时插件会在界面中显示当前状态，包括：
 
 - 等待用户开始工作：`Auto-Working ON · ∞ · 等待用户开始工作中...`
 - 正常运行：`Auto-Working ON`
