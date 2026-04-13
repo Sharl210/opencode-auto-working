@@ -651,6 +651,29 @@ test("keeps the task-complete label after idle clears the internal pause flag", 
   expect(engine.line2("ses_1")).toBe("状态: 任务已完成")
 })
 
+test("does not fall back to start label after interrupt settles and busy resets waiting", async () => {
+  const engine = new Engine({
+    now: () => 0,
+    send: async () => {},
+    idle: async () => true,
+    timer: {
+      set: () => Symbol("timer"),
+      clear: () => {},
+    },
+  })
+
+  engine.enable("ses_1")
+  engine.pause("ses_1", "interrupt")
+  await engine.onIdle("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
+
+  await engine.onIdle("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 等待发送中")
+
+  engine.onBusy("ses_1")
+  expect(engine.line2("ses_1")).toBe("状态: 用户主动打断中")
+})
+
 test("resets backoff when activity returns the tree to idle", async () => {
   let now = 0
   let token = 0

@@ -661,6 +661,20 @@ test("pauses on user interrupt until the next idle", async () => {
   expect(fx.prompt).toHaveLength(2)
 })
 
+test("interrupt overrides the initial start-pause label", async () => {
+  const fx = create()
+  const rt = await setup(fx.api as never, { now: fx.now, timer: fx.timer })
+
+  await fx.cmd.all[0].onSelect?.()
+  expect(rt.eng.line2("root")).toBe("状态: 等待用户开始工作中")
+
+  await fx.emit({ type: "tui.command.execute", properties: { command: "session.interrupt" } } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 用户主动打断中")
+
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  expect(rt.eng.line2("root")).toBe("状态: 用户主动打断中")
+})
+
 test("starts paused when enabled on an idle tree", async () => {
   const fx = create()
 

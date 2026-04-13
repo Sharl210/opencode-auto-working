@@ -248,7 +248,7 @@ export class Engine {
       return
     }
     if (!hit.waiting) return
-    this.#reset(hit)
+    this.#reset(hit, null, hit.state_reason)
   }
 
   async onIdle(sessionID: string) {
