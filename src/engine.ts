@@ -70,6 +70,26 @@ export class Engine {
   #timer
   #map = new Map<string, Entry>()
 
+  #entry(enabled: boolean, count = 0): Entry {
+    return {
+      enabled,
+      waiting: false,
+      paused: false,
+      pause_reason: null,
+      state_reason: enabled ? null : "start",
+      delay_ms: FIRST,
+      next_at: null,
+      timer: null,
+      last_kind: null,
+      seen: false,
+      run: false,
+      rev: 0,
+      active_count: count,
+      live_ms: 0,
+      live_tick_at: this.#now(),
+    }
+  }
+
   constructor(opts: Opts) {
     this.#now = opts.now ?? Date.now
     this.#send = opts.send
@@ -115,37 +135,22 @@ export class Engine {
   enable(sessionID: string) {
     const hit = this.#map.get(sessionID)
     if (hit) this.#clear(hit)
-
-    this.#map.set(sessionID, {
-      enabled: true,
-      waiting: false,
-      paused: false,
-      pause_reason: null,
-      state_reason: null,
-      delay_ms: FIRST,
-      next_at: null,
-      timer: null,
-      last_kind: null,
-      seen: false,
-      run: false,
-      rev: 0,
-      active_count: 0,
-      live_ms: 0,
-      live_tick_at: this.#now(),
-    })
+    this.#map.set(sessionID, this.#entry(true, hit?.active_count ?? 0))
   }
 
   disable(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit) return
+    if (!hit) {
+      this.#map.set(sessionID, this.#entry(false))
+      return
+    }
     this.#clear(hit)
-    this.#map.delete(sessionID)
+    this.#map.set(sessionID, this.#entry(false, hit.active_count))
   }
 
   line1(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled) return ""
-    return "Auto-Working: ON"
+    return `Auto-Working: ${hit?.enabled ? "ON" : "OFF"}`
   }
 
   line2(sessionID: string) {
@@ -168,8 +173,7 @@ export class Engine {
 
   line4(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled) return ""
-    return `进行中任务数: ${hit.active_count}`
+    return `进行中任务数: ${hit?.active_count ?? 0}`
   }
 
   line5(sessionID: string) {
@@ -202,7 +206,10 @@ export class Engine {
 
   setActiveCount(sessionID: string, count: number) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled) return
+    if (!hit) {
+      this.#map.set(sessionID, this.#entry(false, count))
+      return
+    }
     hit.active_count = count
   }
 

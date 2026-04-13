@@ -489,7 +489,43 @@ test("renders the sidebar content safely before Auto-Working is enabled", async 
 
   const out = await testRender(() => section() as never)
   await out.renderOnce()
-  expect(out.captureCharFrame()).not.toContain("Auto-Working")
+  expect(out.captureCharFrame()).toContain("Auto-Working: OFF")
+  expect(out.captureCharFrame()).toContain("进行中任务数: 0")
+  expect(out.captureCharFrame()).not.toContain("状态:")
+})
+
+test("shows active task count while Auto-Working stays off", async () => {
+  await import("@opentui/solid/runtime-plugin-support")
+  const { testRender } = await import("@opentui/solid")
+  const plugin = (await import("../src/plugin")).default
+  const fx = create()
+
+  await plugin.tui(fx.api as never, undefined, { id: "opencode:auto-working" } as never)
+  fx.state.root = { type: "busy" }
+  await fx.emit({ type: "session.status", properties: { sessionID: "root", status: fx.state.root } } as never)
+
+  const section = fx.slot[0]?.slots.sidebar_content
+  if (typeof section !== "function") throw new Error("sidebar content slot missing")
+
+  const out = await testRender(() => section() as never)
+  await out.renderOnce()
+  expect(out.captureCharFrame()).toContain("Auto-Working: OFF")
+  expect(out.captureCharFrame()).toContain("进行中任务数: 1")
+})
+
+test("does not send heartbeat before manual enable", async () => {
+  const fx = create()
+
+  await setup(fx.api as never, { now: fx.now, timer: fx.timer })
+  fx.state.root = { type: "busy" }
+  await fx.emit({ type: "session.status", properties: { sessionID: "root", status: fx.state.root } } as never)
+  fx.state.root = { type: "idle" }
+  await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
+  await fx.advance(60_000)
+
+  expect(fx.prompt).toHaveLength(0)
+  expect(fx.tuiAppend).toHaveLength(0)
+  expect(fx.tuiSubmit).toHaveLength(0)
 })
 
 test("registers a toggle command", async () => {
@@ -655,7 +691,8 @@ test("follows the current session tree when the route switches", async () => {
   fx.api.route.current.params.sessionID = "other"
   await rt.follow("other")
 
-  expect(rt.eng.entry("root")).toBeUndefined()
+  expect(rt.eng.entry("root")?.enabled).toBe(false)
+  expect(rt.eng.line1("root")).toBe("Auto-Working: OFF")
   expect(rt.eng.entry("other")?.enabled).toBe(true)
 })
 

@@ -225,20 +225,29 @@ export async function setup(api: TuiPluginApi, opts: Opts = {}) {
 
   const follow = async (sessionID?: string) => {
     pin(sessionID)
-    if (!live || !sessionID) return
+    if (!sessionID) return
     const rootID = await find(sessionID)
-    if (rootID === live) return
+    root.set(sessionID, rootID)
+    const info = await sync(sessionID)
+    if (!live) {
+      setRev((value) => value + 1)
+      return
+    }
+
+    if (rootID === live) {
+      if (info.active_count > 0) eng.onBusy(info.rootID)
+      setRev((value) => value + 1)
+      return
+    }
 
     eng.disable(live)
     eng.enable(rootID)
     live = rootID
-    root.set(sessionID, rootID)
 
     const status = api.state.session.status(rootID)
     const active = status?.type === "busy" || status?.type === "retry"
     if (!active) eng.pause(rootID, "start")
 
-    const info = await sync(sessionID)
     if (info.active_count > 0) eng.onBusy(info.rootID)
     setRev((value) => value + 1)
   }

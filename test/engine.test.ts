@@ -582,7 +582,10 @@ test("clears accumulated runtime on disable", () => {
   expect(entry(engine).live_ms).toBe(5_000)
 
   engine.disable("ses_1")
-  expect(engine.entry("ses_1")).toBeUndefined()
+  expect(engine.entry("ses_1")?.enabled).toBe(false)
+  expect(engine.entry("ses_1")?.active_count).toBe(1)
+  expect(engine.line1("ses_1")).toBe("Auto-Working: OFF")
+  expect(engine.line4("ses_1")).toBe("进行中任务数: 1")
 })
 
 test("assistant activity resets the waiting state", async () => {
