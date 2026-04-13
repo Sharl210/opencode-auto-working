@@ -236,6 +236,7 @@ export async function setup(api: TuiPluginApi, opts: Opts = {}) {
 
     if (rootID === live) {
       if (info.active_count > 0) eng.onBusy(info.rootID)
+      if (info.active_count < 1) await eng.onIdle(info.rootID)
       setRev((value) => value + 1)
       return
     }
