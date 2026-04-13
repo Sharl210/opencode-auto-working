@@ -1,5 +1,6 @@
 import { heartbeatText } from "./template.js"
 
+const FIRST = 5_000
 const BASE = 30_000
 const CAP = 5 * 60_000
 
@@ -10,6 +11,7 @@ export type Entry = {
   waiting: boolean
   paused: boolean
   pause_reason: PauseReason | null
+  state_reason: PauseReason | null
   delay_ms: number
   next_at: number | null
   timer: unknown | null
@@ -17,7 +19,7 @@ export type Entry = {
   seen: boolean
   run: boolean
   rev: number
-  task_count: number
+  active_count: number
   live_ms: number
   live_tick_at: number | null
 }
@@ -35,9 +37,10 @@ type Opts = {
 }
 
 const grow = (ms: number) => Math.max(BASE, Math.round(ms * (ms >= CAP ? 3 : 1.3)))
+const next = (ms: number) => (ms < BASE ? BASE : grow(ms))
 
 const why = (why: PauseReason | null) => {
-  if (why === "start") return "等待用户开始工作中..."
+  if (why === "start") return "等待用户开始工作中"
   if (why === "user") return "等待用户介入"
   if (why === "complete") return "任务已完成"
   if (why === "interrupt") return "用户主动打断中"
@@ -84,16 +87,25 @@ export class Engine {
     hit.next_at = null
   }
 
-  #reset(hit: Entry, kind: Entry["last_kind"] = null) {
+  #reset(hit: Entry, kind: Entry["last_kind"] = null, show: PauseReason | null = null) {
     this.#clear(hit)
     hit.waiting = false
     hit.paused = false
     hit.pause_reason = null
-    hit.delay_ms = BASE
+    hit.state_reason = show
+    hit.delay_ms = FIRST
     hit.last_kind = kind
     hit.seen = false
     hit.live_tick_at = this.#now()
     hit.rev += 1
+  }
+
+  #arm(sessionID: string, hit: Entry, ms: number) {
+    hit.next_at = this.#now() + ms
+    hit.timer = this.#timer.set(ms, async () => {
+      if (hit.timer !== null) hit.timer = null
+      await this.onIdle(sessionID)
+    })
   }
 
   entry(sessionID: string) {
@@ -109,14 +121,15 @@ export class Engine {
       waiting: false,
       paused: false,
       pause_reason: null,
-      delay_ms: BASE,
+      state_reason: null,
+      delay_ms: FIRST,
       next_at: null,
       timer: null,
       last_kind: null,
       seen: false,
       run: false,
       rev: 0,
-      task_count: 1,
+      active_count: 0,
       live_ms: 0,
       live_tick_at: this.#now(),
     })
@@ -129,26 +142,44 @@ export class Engine {
     this.#map.delete(sessionID)
   }
 
-  badge(sessionID: string) {
+  line1(sessionID: string) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return ""
+    return "Auto-Working: ON"
+  }
 
-    const out = ["Auto-Working ON"]
+  line2(sessionID: string) {
+    const hit = this.#map.get(sessionID)
+    if (!hit?.enabled) return ""
+    if (hit.paused) return `状态: ${why(hit.pause_reason)}`
+    if (hit.waiting) return "状态: 等待发送中"
+    if (hit.active_count > 0) return "状态: 正在运行中"
+    return `状态: ${why(hit.state_reason ?? "start")}`
+  }
 
-    if (hit.paused) {
-      out.push("∞")
-      const text = why(hit.pause_reason)
-      if (text) out.push(text)
-    }
+  line3(sessionID: string) {
+    const hit = this.#map.get(sessionID)
+    if (!hit?.enabled) return ""
+    if (hit.paused) return "距离下次重发剩余: ∞"
+    if (!hit.waiting || hit.next_at === null) return ""
+    const sec = Math.max(0, Math.ceil((hit.next_at - this.#now()) / 1000))
+    return `距离下次重发剩余: ${sec}s`
+  }
 
-    if (!hit.paused && hit.waiting && hit.next_at !== null) {
-      const sec = Math.max(0, Math.ceil((hit.next_at - this.#now()) / 1000))
-      out.push(`${sec}s`)
-    }
+  line4(sessionID: string) {
+    const hit = this.#map.get(sessionID)
+    if (!hit?.enabled) return ""
+    return `进行中任务数: ${hit.active_count}`
+  }
 
-    out.push(`${hit.task_count} 个任务`)
-    out.push(live(hit.live_ms))
-    return out.join(" · ")
+  line5(sessionID: string) {
+    const hit = this.#map.get(sessionID)
+    if (!hit?.enabled) return ""
+    return `模式已持续运行: ${live(hit.live_ms)}`
+  }
+
+  badge(sessionID: string) {
+    return [this.line1(sessionID), this.line2(sessionID), this.line3(sessionID), this.line4(sessionID), this.line5(sessionID)].filter(Boolean).join("\n")
   }
 
   title(sessionID: string) {
@@ -169,10 +200,10 @@ export class Engine {
     this.#reset(hit, "manual")
   }
 
-  setTaskCount(sessionID: string, count: number) {
+  setActiveCount(sessionID: string, count: number) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
-    hit.task_count = count
+    hit.active_count = count
   }
 
   tick(sessionID: string) {
@@ -180,7 +211,7 @@ export class Engine {
     if (!hit?.enabled || hit.live_tick_at === null) return
 
     const now = this.#now()
-    if (hit.waiting || hit.paused) {
+    if (hit.waiting || hit.paused || hit.active_count < 1) {
       hit.live_tick_at = now
       return
     }
@@ -191,7 +222,7 @@ export class Engine {
   pause(sessionID: string, why: PauseReason) {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
-    this.#reset(hit)
+    this.#reset(hit, null, why)
     hit.paused = true
     hit.pause_reason = why
     hit.seen = why !== "start"
@@ -202,46 +233,81 @@ export class Engine {
     const hit = this.#map.get(sessionID)
     if (!hit?.enabled) return
     if (hit.paused) {
+      if (hit.pause_reason === "start") {
+        this.#reset(hit)
+        return
+      }
       hit.seen = true
       return
     }
     if (!hit.waiting) return
-    hit.seen = true
+    this.#reset(hit)
   }
 
   async onIdle(sessionID: string) {
     const hit = this.#map.get(sessionID)
-    if (!hit?.enabled || hit.run) return
+    if (!hit?.enabled) return
+    if (hit.run) {
+      if (!hit.waiting || hit.paused) return
+      if (hit.timer !== null) return
+      const rest = hit.next_at === null ? 200 : Math.max(50, hit.next_at - this.#now())
+      this.#arm(sessionID, hit, rest)
+      return
+    }
 
     hit.run = true
     const rev = hit.rev
 
     try {
-      if (!(await this.#idle(sessionID))) return
+      if (!(await this.#idle(sessionID))) {
+        if (hit.waiting) this.#reset(hit)
+        return
+      }
       if (this.#map.get(sessionID) !== hit || !hit.enabled || hit.rev !== rev) return
 
       if (hit.paused) {
         if (!hit.seen) return
-        this.#reset(hit)
-        return
+        const show = hit.pause_reason
+        const start = show === "start"
+        this.#reset(hit, null, show)
+        if (!start) return
       }
 
       if (hit.seen) {
         this.#reset(hit)
         return
       }
-      if (hit.waiting && hit.next_at !== null && this.#now() < hit.next_at) return
 
-      await this.#send(sessionID, heartbeatText())
+      if (!hit.waiting) {
+        const ms = hit.delay_ms
+        hit.waiting = true
+        this.#arm(sessionID, hit, ms)
+        return
+      }
+
+      if (hit.next_at !== null && this.#now() < hit.next_at) {
+        if (hit.timer === null) {
+          this.#arm(sessionID, hit, Math.max(50, hit.next_at - this.#now()))
+        }
+        return
+      }
+
+      if (hit.timer !== null) {
+        this.#timer.clear(hit.timer)
+        hit.timer = null
+      }
+
+      try {
+        await this.#send(sessionID, heartbeatText())
+      } catch {
+        this.#reset(hit)
+        return
+      }
       if (this.#map.get(sessionID) !== hit || !hit.enabled || hit.rev !== rev) return
 
-      const ms = hit.waiting ? grow(hit.delay_ms) : hit.delay_ms
-      hit.waiting = true
+      const ms = next(hit.delay_ms)
       hit.delay_ms = ms
-      hit.next_at = this.#now() + ms
-      hit.timer = this.#timer.set(ms, async () => {
-        await this.onIdle(sessionID)
-      })
+      this.#arm(sessionID, hit, ms)
       hit.last_kind = "heartbeat"
     } finally {
       hit.run = false
