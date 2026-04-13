@@ -79,8 +79,6 @@ opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/lates
 
 - `Auto-Working: Disable`
 
-这里的 Enable 和 Disable 不是两个可任选的“其一”，而是同一个开关在不同状态下对应的两个动作。
-
 ## 自动工作层在 ON 状态下会做什么
 
 当插件处于 **ON** 状态时：
@@ -98,8 +96,6 @@ opencode plugin https://github.com/Sharl210/opencode-auto-working/releases/lates
 - `用户主动打断中`
 - `等待用户介入`
 - `任务已完成`
-
-最终显示层不会落到一个笼统的“已暂停”，而是会显示这四种具体文案之一。
 
 ## 模型回复里的控制标识
 
