@@ -39,9 +39,9 @@ function create() {
     other: { type: "idle" as const },
   }
   const msg = {
-    root: [] as Array<{ id: string; role: "user" | "assistant" }>,
-    child: [] as Array<{ id: string; role: "user" | "assistant" }>,
-    other: [] as Array<{ id: string; role: "user" | "assistant" }>,
+    root: [] as Array<{ id: string; role: "user" | "assistant"; error?: { name?: string } }>,
+    child: [] as Array<{ id: string; role: "user" | "assistant"; error?: { name?: string } }>,
+    other: [] as Array<{ id: string; role: "user" | "assistant"; error?: { name?: string } }>,
   }
   let seq = 0
   let now = 0
@@ -717,6 +717,23 @@ test("keeps interrupt pause until the user sends a new real message", async () =
   await fx.emit({ type: "session.idle", properties: { sessionID: "root" } } as never)
   await fx.advance(5_000)
   expect(fx.prompt).toHaveLength(2)
+})
+
+test("maps aborted assistant messages to interrupt pause", async () => {
+  const fx = create()
+  const rt = await setup(fx.api as never, { now: fx.now, timer: fx.timer })
+
+  fx.state.root = { type: "busy" }
+  await fx.cmd.all[0].onSelect?.()
+  await settle()
+
+  fx.msg.root.push({ id: "msg_abort", role: "assistant", error: { name: "MessageAbortedError" } })
+  await fx.emit({
+    type: "message.updated",
+    properties: { sessionID: "root", info: { id: "msg_abort", role: "assistant", error: { name: "MessageAbortedError" } } },
+  } as never)
+
+  expect(rt.eng.line2("root")).toBe("状态: 用户主动打断中")
 })
 
 test("interrupt overrides the initial start-pause label", async () => {

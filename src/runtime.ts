@@ -211,6 +211,15 @@ export async function setup(api: TuiPluginApi, opts: Opts = {}) {
     return { rootID, active_count: info.active_count }
   }
 
+  const aborted = (value: unknown) => {
+    if (!value || typeof value !== "object") return false
+    if (!("error" in value)) return false
+    const err = value.error
+    if (!err || typeof err !== "object") return false
+    if (!("name" in err)) return false
+    return err.name === "MessageAbortedError"
+  }
+
   const rebinding = () => {
     off()
     off = api.command.register(cmds)
@@ -371,6 +380,9 @@ export async function setup(api: TuiPluginApi, opts: Opts = {}) {
   api.event.on("message.updated", (event) => {
     role.set(event.properties.info.id, event.properties.info.role)
     if (event.properties.info.role !== "assistant") return
+    if (aborted(event.properties.info)) {
+      return run(event.properties.sessionID, (rootID) => eng.pause(rootID, "interrupt"))
+    }
     if (paused.has(event.properties.info.id)) return
     return run(event.properties.sessionID, (rootID) => eng.onAssistant(rootID))
   })
